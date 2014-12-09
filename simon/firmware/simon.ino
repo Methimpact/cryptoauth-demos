@@ -1,3 +1,4 @@
+#include "Wire.h"
 #define CHOICE_OFF      0 //Used to control LEDs
 #define CHOICE_NONE     0 //Used to check buttons
 #define CHOICE_RED	(1 << 0)
@@ -243,25 +244,76 @@ void setup()
   digitalWrite(BUTTON4, HIGH);
 }
 
+
+const int addr = 0x64;
+static char buf[] = {0x03, 0x07, 0x1B, 0x01, 0x00, 0x00, 0x27, 0x47};
+static char wakeup[] = {0,0,0,0};
+
+void wakka(void) {
+
+  Wire.begin(); // join i2c bus (address optional for master)
+
+  Wire.beginTransmission(addr); // transmit to device #4
+  for (int x = 0; x < sizeof(wakeup); x++)
+  {
+    Wire.write(wakeup[x]);
+  }
+  Wire.endTransmission();    // stop transmitting
+
+  delay(2.5);
+
+  Wire.requestFrom(addr, 4);    // request 6 bytes from slave device #2
+
+  while(Wire.available())    // slave may send less than requested
+  {
+    char c = Wire.read();
+
+  }
+
+  Wire.beginTransmission(addr); // transmit to device #4
+  for (int x = 0; x < sizeof(buf); x++)
+  {
+    Wire.write(buf[x]);
+  }
+  Wire.endTransmission();    // stop transmitting
+
+  delay(40);
+
+  Wire.requestFrom(addr, 32);    // request 6 bytes from slave device #2
+
+  while(Wire.available())    // slave may send less than requested
+  {
+    char c = Wire.read(); // receive a byte as character
+    Serial.print(c, HEX);
+  }
+
+  Serial.print('\n');
+}
+
 void loop()
 {
   play_winner(); // Intro sequence for startup
 
-  // Wait in attract mode until a button is pressed
-	// attract mode will return 1 if this player is the first
-	// player to press a button
-	first_turn = attract_mode();
+  wakka();
 
-  // Begin game: flash all LEDs, then go into game mode
-  set_leds(LED1_MASK | LED2_MASK | LED3_MASK | LED4_MASK);
-  delay(1000);
-  set_leds(0);
-  delay(250);
+  // // Wait in attract mode until a button is pressed
+  //       // attract mode will return 1 if this player is the first
+  //       // player to press a button
+  //       first_turn = attract_mode();
 
-  // Play game and handle result
-	// game_mode() function returns 1 for win, 0 for loss
-  if(game_mode()) { play_winner(); }
-  else { play_loser(); }
+  // // Begin game: flash all LEDs, then go into game mode
+  // set_leds(LED1_MASK | LED2_MASK | LED3_MASK | LED4_MASK);
+  // delay(1000);
+  // set_leds(0);
+  // delay(250);
+
+  // // Play game and handle result
+  //       // game_mode() function returns 1 for win, 0 for loss
+  // if(game_mode()) {
+  //     play_winner();
+  // }
+
+  // else { play_loser(); }
 }
 
 
@@ -458,13 +510,16 @@ byte attract_mode(void)
     set_leds(current_led);
     delay(100);
 
-		// Check if a button is pressed. Once a button is pressed, send
-		// a 'c' character to the other player to indicate that a game has
-		// started, then return 1 to start game
-    if(check_button()) { Serial.print('c'); return 1; } // Return 1 if button is pressed. This means player is player 1
+    // Check if a button is pressed. Once a button is pressed, send
+    // a 'c' character to the other player to indicate that a game has
+    // started, then return 1 to start game
+    if(check_button()) {
+        Serial.print('c');
+        return 1;
+    } // Return 1 if button is pressed. This means player is player 1
 
-		// Check if the other player has sent a 'c'. This means a game has started
-		if(Serial.available())
+    // Check if the other player has sent a 'c'. This means a game has started
+    if(Serial.available())
     {
       received = Serial.read();
       if(received == 'c') { return 0; } // Return 2 if we receive a 'c'hallenge from another player

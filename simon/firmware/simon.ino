@@ -1,4 +1,7 @@
 #include "Wire.h"
+#include "AtSha204.h"
+#include "CryptoBuffer.h"
+
 #define CHOICE_OFF      0 //Used to control LEDs
 #define CHOICE_NONE     0 //Used to check buttons
 #define CHOICE_RED	(1 << 0)
@@ -236,6 +239,8 @@ void setup()
   pinMode(BUZZER1, OUTPUT);   // BUZZER1
   pinMode(BUZZER2, OUTPUT);   // BUZZER2
 
+  // GPIO for the ATSHA204A
+  pinMode(A0, INPUT);
   // Enable pull-ups on buttons
 	// Button I/Os will read LOW when pressed
   digitalWrite(BUTTON1, HIGH);
@@ -249,6 +254,40 @@ const int addr = 0x64;
 static char buf[] = {0x03, 0x07, 0x1B, 0x01, 0x00, 0x00, 0x27, 0x47};
 static char wakeup[] = {0,0,0,0};
 
+static uint8_t to_mac[32] = {0};
+static uint8_t rsp[32] = {0};
+
+AtSha204 sha = AtSha204();
+
+void testMac(void)
+{
+    to_mac[0] = 1;
+
+    if (0 == sha.macBasic(to_mac, sizeof(to_mac)))
+    {
+        for (int x = 0; x < sha.rsp.getLength(); x++)
+            Serial.write(*(sha.rsp.getPointer() + x));
+        //sha.rsp.dumpHex(&Serial);
+
+        if (0 == sha.checkMacBasic(to_mac, sizeof(to_mac), const_cast<uint8_t*>(sha.rsp.getPointer())))
+            Serial.print('*');
+    }
+    else
+    {
+        Serial.println("FAIL");
+    }
+}
+void getRandom(void)
+{
+    if (0 == sha.getRandom()){
+        Serial.println("Success");
+        sha.rsp.dumpHex(&Serial);
+    }
+    else{
+        Serial.println("Failue");
+    }
+
+}
 void wakka(void) {
 
   Wire.begin(); // join i2c bus (address optional for master)
@@ -294,7 +333,9 @@ void loop()
 {
   play_winner(); // Intro sequence for startup
 
-  wakka();
+  testMac();
+
+  delay(1000);
 
   // // Wait in attract mode until a button is pressed
   //       // attract mode will return 1 if this player is the first
@@ -342,17 +383,23 @@ byte game_mode(void)
     }
     else
     {
-			// Wait for move from other player. If this receive function
-			// returns 0, this is a win.
-      if(!receive_move()) { return 1; }
-      // Wait a half second before playing back the moves
-			delay(500);
-      play_moves();
-			// Test the player, if test is failed, this is a loss.
-      if(!test_moves()) { return 0; }
-			// Test is successful, add a new move and send it to the
-			// other player.
-      add_move();
+        // Wait for move from other player. If this receive function
+        // returns 0, this is a win.
+        if(!receive_move())
+        {
+            return 1;
+        }
+        // Wait a half second before playing back the moves
+        delay(500);
+        play_moves();
+        // Test the player, if test is failed, this is a loss.
+        if(!test_moves())
+        {
+            return 0;
+        }
+        // Test is successful, add a new move and send it to the
+        // other player.
+        add_move();
     }
   }
 
@@ -402,22 +449,35 @@ void add_move(void)
 {
   byte choice = 0;
 
- 	// Wait for the user to press a button
+  // Wait for the user to press a button
   choice = wait_for_button();
 
-	// Light the LED and beep to indicate received press
+  // Light the LED and beep to indicate received press
   toner(choice, 150);
 
-	// Translate the button from its bitmask
+  // Translate the button from its bitmask
   if(choice == BUTTON1_MASK) { choice = 0; }
   if(choice == BUTTON2_MASK) { choice = 1; }
   if(choice == BUTTON3_MASK) { choice = 2; }
   if(choice == BUTTON4_MASK) { choice = 3; }
 
-	moves[nmoves++] = choice; // Add the move to the list
+  moves[nmoves++] = choice; // Add the move to the list
 
-	// Send the new move to the other player
-	Serial.print(choice);
+  to_mac[0] = choice;
+
+  if (0 == sha.macBasic(to_mac, sizeof(to_mac)))
+  {
+      // Send the new move to the other player
+      Serial.print(choice);
+
+      for (int x = 0; x < sha.rsp.getLength(); x++)
+          Serial.write(*(sha.rsp.getPointer() + x));
+  }
+  else
+  {
+      Serial.print('l');
+  }
+
 }
 
 /**********************************************************************
@@ -441,6 +501,11 @@ byte receive_move(void)
       else { // Sent char was a button press
         choice = choice - 48; // Convert char from ASCII to button value
         moves[nmoves++] = choice;  // Add to list of moves
+
+        for (int x=0; x < sizeof(rsp); x++)
+            rsp[x] = Serial.read();
+
+
         return 1;
       }
     }
